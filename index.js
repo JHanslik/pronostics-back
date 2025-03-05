@@ -25,11 +25,13 @@ const authRoutes = require("./routes/auth");
 const matchRoutes = require("./routes/matches");
 const pronosticRoutes = require("./routes/pronostics");
 const userRoutes = require("./routes/users");
+const predictionRoutes = require("./routes/predictions");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/matches", matchRoutes);
 app.use("/api/pronostics", pronosticRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/predictions", predictionRoutes);
 
 // Route de base
 app.get("/", (req, res) => {
