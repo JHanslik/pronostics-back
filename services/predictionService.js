@@ -1,192 +1,165 @@
 const Match = require("../models/Match");
 const footballApi = require("./footballApi");
+const matchHistoryService = require("./matchHistoryService");
 
 // Service de prédiction basé sur les données réelles
 const predictionService = {
   // Prédire le résultat d'un match
   predictMatchResult: async (matchId) => {
     try {
-      // Récupérer le match à prédire
+      console.log(`Génération de prédiction pour le match ${matchId}`);
+
+      // Récupérer les informations du match
       const match = await Match.findById(matchId);
       if (!match) {
         throw new Error("Match non trouvé");
       }
 
-      // Récupérer l'historique des matchs pour les deux équipes
-      const homeTeamMatches = await Match.find({
-        $or: [{ homeTeam: match.homeTeam }, { awayTeam: match.homeTeam }],
-        status: "finished",
-        _id: { $ne: match._id },
-        "result.homeScore": { $ne: null },
-        "result.awayScore": { $ne: null },
-      })
-        .sort({ startTime: -1 })
-        .limit(15);
+      const homeTeam = match.homeTeam;
+      const awayTeam = match.awayTeam;
 
-      const awayTeamMatches = await Match.find({
-        $or: [{ homeTeam: match.awayTeam }, { awayTeam: match.awayTeam }],
-        status: "finished",
-        _id: { $ne: match._id },
-        "result.homeScore": { $ne: null },
-        "result.awayScore": { $ne: null },
-      })
-        .sort({ startTime: -1 })
-        .limit(15);
+      console.log(`Match entre ${homeTeam} et ${awayTeam}`);
 
-      // Récupérer les confrontations directes
-      const headToHeadMatches = await Match.find({
-        $or: [
-          { homeTeam: match.homeTeam, awayTeam: match.awayTeam },
-          { homeTeam: match.awayTeam, awayTeam: match.homeTeam },
-        ],
-        status: "finished",
-        _id: { $ne: match._id },
-        "result.homeScore": { $ne: null },
-        "result.awayScore": { $ne: null },
-      })
-        .sort({ startTime: -1 })
-        .limit(5);
-
-      // Si nous n'avons pas assez de données, essayer de récupérer plus de données via l'API externe
-      if (homeTeamMatches.length < 5 || awayTeamMatches.length < 5) {
-        await enrichMatchData(match.homeTeam, match.awayTeam);
-
-        // Récupérer à nouveau les données après enrichissement
-        const updatedHomeTeamMatches = await Match.find({
-          $or: [{ homeTeam: match.homeTeam }, { awayTeam: match.homeTeam }],
-          status: "finished",
-          _id: { $ne: match._id },
-          "result.homeScore": { $ne: null },
-          "result.awayScore": { $ne: null },
-        })
-          .sort({ startTime: -1 })
-          .limit(15);
-
-        const updatedAwayTeamMatches = await Match.find({
-          $or: [{ homeTeam: match.awayTeam }, { awayTeam: match.awayTeam }],
-          status: "finished",
-          _id: { $ne: match._id },
-          "result.homeScore": { $ne: null },
-          "result.awayScore": { $ne: null },
-        })
-          .sort({ startTime: -1 })
-          .limit(15);
-
-        // Utiliser les données enrichies si disponibles
-        if (updatedHomeTeamMatches.length > homeTeamMatches.length) {
-          homeTeamMatches = updatedHomeTeamMatches;
-        }
-
-        if (updatedAwayTeamMatches.length > awayTeamMatches.length) {
-          awayTeamMatches = updatedAwayTeamMatches;
-        }
-      }
-
-      // Calculer les statistiques pour l'équipe à domicile
-      const homeTeamStats = calculateTeamStats(homeTeamMatches, match.homeTeam);
-
-      // Calculer les statistiques pour l'équipe à l'extérieur
-      const awayTeamStats = calculateTeamStats(awayTeamMatches, match.awayTeam);
-
-      // Calculer les statistiques des confrontations directes
-      const h2hStats = calculateH2HStats(
-        headToHeadMatches,
-        match.homeTeam,
-        match.awayTeam
+      // Récupérer l'historique des matchs depuis notre base de données locale
+      console.log(`Récupération de l'historique pour ${homeTeam}`);
+      const homeTeamMatches = await matchHistoryService.getTeamHistory(
+        homeTeam,
+        30
       );
 
-      // Calculer les probabilités
+      console.log(`Récupération de l'historique pour ${awayTeam}`);
+      const awayTeamMatches = await matchHistoryService.getTeamHistory(
+        awayTeam,
+        30
+      );
+
+      console.log(
+        `Récupération des confrontations directes entre ${homeTeam} et ${awayTeam}`
+      );
+      const h2hMatches = await matchHistoryService.getHeadToHeadMatches(
+        homeTeam,
+        awayTeam,
+        10
+      );
+
+      // Calculer les statistiques des équipes
+      const homeStats = calculateTeamStats(homeTeamMatches, homeTeam);
+      const awayStats = calculateTeamStats(awayTeamMatches, awayTeam);
+      const h2hStats = calculateH2HStats(h2hMatches, homeTeam, awayTeam);
+
+      // Calculer les probabilités de victoire
       const homeProbability = calculateWinProbability(
-        homeTeamStats,
-        awayTeamStats,
+        homeStats,
+        awayStats,
         h2hStats,
         true
       );
       const awayProbability = calculateWinProbability(
-        awayTeamStats,
-        homeTeamStats,
+        awayStats,
+        homeStats,
         h2hStats,
         false
       );
       const drawProbability = Math.max(
         0,
-        1 - homeProbability - awayProbability
+        100 - homeProbability - awayProbability
       );
 
       // Prédire le score
-      const predictedScore = predictScore(
-        homeTeamStats,
-        awayTeamStats,
-        h2hStats
-      );
+      const predictedScore = predictScore(homeStats, awayStats, h2hStats);
 
       // Déterminer le résultat le plus probable
       let mostLikelyResult;
-      if (
-        homeProbability > awayProbability &&
-        homeProbability > drawProbability
-      ) {
+      let highestProbability = Math.max(
+        homeProbability,
+        awayProbability,
+        drawProbability
+      );
+
+      if (highestProbability === homeProbability) {
         mostLikelyResult = "home";
-      } else if (
-        awayProbability > homeProbability &&
-        awayProbability > drawProbability
-      ) {
+      } else if (highestProbability === awayProbability) {
         mostLikelyResult = "away";
       } else {
         mostLikelyResult = "draw";
       }
 
+      // Calculer la confiance dans les données
+      const dataConfidence = calculateDataConfidence(
+        homeTeamMatches,
+        awayTeamMatches,
+        h2hMatches
+      );
+
+      // Formater les matchs récents pour l'affichage
+      const recentHomeMatches = formatRecentMatches(
+        homeTeamMatches.slice(0, 5),
+        homeTeam
+      );
+      const recentAwayMatches = formatRecentMatches(
+        awayTeamMatches.slice(0, 5),
+        awayTeam
+      );
+      const recentH2HMatches = formatH2HMatches(
+        h2hMatches.slice(0, 5),
+        homeTeam,
+        awayTeam
+      );
+
+      // Retourner la prédiction complète
       return {
-        match: {
-          id: match._id,
-          homeTeam: match.homeTeam,
-          awayTeam: match.awayTeam,
-          startTime: match.startTime,
+        matchId,
+        homeTeam,
+        awayTeam,
+        probabilities: {
+          home: Math.round(homeProbability),
+          draw: Math.round(drawProbability),
+          away: Math.round(awayProbability),
         },
-        prediction: {
-          homeWinProbability: Math.round(homeProbability * 100),
-          drawProbability: Math.round(drawProbability * 100),
-          awayWinProbability: Math.round(awayProbability * 100),
-          predictedScore: predictedScore,
-          mostLikelyResult: mostLikelyResult,
-          confidence: Math.round(
-            Math.max(homeProbability, drawProbability, awayProbability) * 100
-          ),
+        predictedScore: {
+          home: predictedScore.home,
+          away: predictedScore.away,
         },
+        mostLikelyResult,
+        dataConfidence,
         stats: {
-          homeTeam: {
-            ...homeTeamStats,
-            recentMatches: formatRecentMatches(homeTeamMatches, match.homeTeam),
+          home: {
+            recentForm: homeStats.form,
+            averageGoalsScored: homeStats.averageGoalsScored.toFixed(2),
+            averageGoalsConceded: homeStats.averageGoalsConceded.toFixed(2),
+            winRate: homeStats.winRate.toFixed(2),
+            homeAdvantage: homeStats.homeAdvantage.toFixed(2),
           },
-          awayTeam: {
-            ...awayTeamStats,
-            recentMatches: formatRecentMatches(awayTeamMatches, match.awayTeam),
+          away: {
+            recentForm: awayStats.form,
+            averageGoalsScored: awayStats.averageGoalsScored.toFixed(2),
+            averageGoalsConceded: awayStats.averageGoalsConceded.toFixed(2),
+            winRate: awayStats.winRate.toFixed(2),
+            awayPerformance: awayStats.awayPerformance.toFixed(2),
           },
-          headToHead: {
-            ...h2hStats,
-            recentMatches: formatH2HMatches(
-              headToHeadMatches,
-              match.homeTeam,
-              match.awayTeam
-            ),
+          h2h: {
+            homeWins: h2hStats.homeWins,
+            awayWins: h2hStats.awayWins,
+            draws: h2hStats.draws,
+            totalMatches: h2hStats.totalMatches,
+            averageHomeGoals: h2hStats.averageHomeGoals.toFixed(2),
+            averageAwayGoals: h2hStats.averageAwayGoals.toFixed(2),
           },
         },
-        dataQuality: {
-          homeTeamMatchesCount: homeTeamMatches.length,
-          awayTeamMatchesCount: awayTeamMatches.length,
-          h2hMatchesCount: headToHeadMatches.length,
-          confidence: calculateDataConfidence(
-            homeTeamMatches.length,
-            awayTeamMatches.length,
-            headToHeadMatches.length
-          ),
+        recentMatches: {
+          home: recentHomeMatches,
+          away: recentAwayMatches,
+          h2h: recentH2HMatches,
         },
       };
     } catch (error) {
-      console.error("Erreur lors de la prédiction:", error);
+      console.error("Erreur lors de la génération de la prédiction:", error);
       throw error;
     }
   },
+
+  // Exporter la fonction de synchronisation pour pouvoir l'appeler depuis un contrôleur
+  syncHistoricalMatches: matchHistoryService.syncHistoricalMatches,
 };
 
 // Enrichir les données de match via l'API externe
@@ -394,8 +367,15 @@ function calculateWinProbability(teamStats, opponentStats, h2hStats, isHome) {
     probability += HOME_ADVANTAGE;
   }
 
+  // Ajuster en fonction du nombre de matchs disponibles
+  const dataQualityFactor = Math.min(1, teamStats.played / 10);
+  probability = probability * dataQualityFactor + 0.5 * (1 - dataQualityFactor);
+
   // Normaliser entre 0 et 0.8 (pour laisser de la place aux nuls)
-  return Math.max(0, Math.min(0.8, probability));
+  probability = Math.max(0, Math.min(0.8, probability));
+
+  // Convertir en pourcentage
+  return probability * 100;
 }
 
 // Prédire le score
@@ -421,6 +401,16 @@ function predictScore(homeStats, awayStats, h2hStats) {
 
     predictedAwayGoals =
       awayStats.averageGoalsScored * 0.6 + homeStats.averageGoalsConceded * 0.4;
+  }
+
+  // Ajuster en fonction de la qualité des données
+  const homeDataQuality = Math.min(1, homeStats.played / 10);
+  const awayDataQuality = Math.min(1, awayStats.played / 10);
+
+  // Si peu de données, ajuster vers des scores plus probables
+  if (homeDataQuality < 0.5 || awayDataQuality < 0.5) {
+    predictedHomeGoals = predictedHomeGoals * 0.7 + 1.2 * 0.3;
+    predictedAwayGoals = predictedAwayGoals * 0.7 + 0.8 * 0.3;
   }
 
   // Arrondir à un nombre entier
@@ -487,16 +477,64 @@ function formatH2HMatches(matches, homeTeam, awayTeam) {
 // Calculer la confiance dans les données
 function calculateDataConfidence(homeMatches, awayMatches, h2hMatches) {
   // Plus nous avons de données, plus la confiance est élevée
-  const homeConfidence = Math.min(1, homeMatches / 10);
-  const awayConfidence = Math.min(1, awayMatches / 10);
-  const h2hConfidence = Math.min(1, h2hMatches / 5) * 1.5; // Les confrontations directes ont plus de poids
+  const homeConfidence = Math.min(1, homeMatches.length / 10);
+  const awayConfidence = Math.min(1, awayMatches.length / 10);
+  const h2hConfidence = Math.min(1, h2hMatches.length / 5) * 1.5; // Les confrontations directes ont plus de poids
+
+  // Vérifier la récence des données
+  const now = new Date();
+  const sixMonthsAgo = new Date(now.setMonth(now.getMonth() - 6));
+
+  // Calculer le pourcentage de matchs récents
+  const recentHomeMatches = homeMatches.filter(
+    (m) => new Date(m.startTime) >= sixMonthsAgo
+  ).length;
+  const recentAwayMatches = awayMatches.filter(
+    (m) => new Date(m.startTime) >= sixMonthsAgo
+  ).length;
+
+  const recencyFactor = Math.min(
+    1,
+    (recentHomeMatches + recentAwayMatches) / 10
+  );
 
   // Moyenne pondérée
   const confidence =
-    homeConfidence * 0.35 + awayConfidence * 0.35 + h2hConfidence * 0.3;
+    (homeConfidence * 0.35 + awayConfidence * 0.35 + h2hConfidence * 0.3) *
+    (0.7 + recencyFactor * 0.3); // La récence améliore la confiance
 
   // Convertir en pourcentage
   return Math.round(confidence * 100);
 }
 
-module.exports = predictionService;
+// Ajouter une fonction pour vérifier si nous avons besoin de plus de données
+async function checkDataQuality(homeTeam, awayTeam) {
+  const homeMatches = await matchHistoryService.getTeamHistory(homeTeam, 30);
+  const awayMatches = await matchHistoryService.getTeamHistory(awayTeam, 30);
+  const h2hMatches = await matchHistoryService.getHeadToHeadMatches(
+    homeTeam,
+    awayTeam,
+    10
+  );
+
+  const confidence = calculateDataConfidence(
+    homeMatches,
+    awayMatches,
+    h2hMatches
+  );
+
+  return {
+    confidence,
+    needsMoreData: confidence < 50,
+    recommendations: {
+      needsHomeTeamData: homeMatches.length < 5,
+      needsAwayTeamData: awayMatches.length < 5,
+      needsH2HData: h2hMatches.length < 2,
+    },
+  };
+}
+
+module.exports = {
+  ...predictionService,
+  checkDataQuality,
+};

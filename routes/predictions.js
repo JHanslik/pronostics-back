@@ -1,7 +1,12 @@
 const express = require("express");
 const router = express.Router();
-const { getPrediction } = require("../controllers/predictionController");
+const {
+  getPrediction,
+  syncHistoricalData,
+} = require("../controllers/predictionController");
+const { protect, admin } = require("../middlewares/authMiddleware");
 
+router.get("/sync-history", protect, admin, syncHistoricalData);
 router.get("/:matchId", getPrediction);
 
 module.exports = router;
