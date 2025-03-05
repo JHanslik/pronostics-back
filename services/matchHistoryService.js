@@ -19,7 +19,7 @@ const matchHistoryService = {
       });
 
       // Augmenter le seuil pour récupérer plus de matchs
-      if (existingCount >= 50) {
+      if (existingCount >= 200) {
         console.log(
           `Déjà ${existingCount} matchs en base pour ${teamName}, pas besoin d'en récupérer plus`
         );
@@ -38,16 +38,25 @@ const matchHistoryService = {
 
       console.log(`${matches.length} matchs trouvés pour ${teamName}`);
 
-      // Stocker chaque match dans la base de données
-      let newMatchesCount = 0;
-      for (const match of matches) {
-        // Vérifier si le match existe déjà
-        const existingMatch = await HistoricalMatch.findOne({
-          externalId: match.externalId,
-        });
+      // Récupérer tous les externalId existants en une seule requête
+      const existingIds = new Set(
+        (
+          await HistoricalMatch.find(
+            { externalId: { $in: matches.map((m) => m.externalId) } },
+            "externalId"
+          )
+        ).map((doc) => doc.externalId)
+      );
 
-        if (!existingMatch) {
-          await HistoricalMatch.create({
+      // Filtrer les nouveaux matchs
+      const newMatches = matches.filter(
+        (match) => !existingIds.has(match.externalId)
+      );
+
+      // Insérer les nouveaux matchs en une seule opération
+      if (newMatches.length > 0) {
+        await HistoricalMatch.insertMany(
+          newMatches.map((match) => ({
             externalId: match.externalId,
             homeTeam: match.homeTeam,
             awayTeam: match.awayTeam,
@@ -55,13 +64,33 @@ const matchHistoryService = {
             startTime: match.startTime,
             status: match.status,
             result: match.result,
-          });
-          newMatchesCount++;
-        }
+          }))
+        );
+      }
+
+      // Mettre à jour les matchs existants qui ont changé de statut
+      const matchesToUpdate = matches.filter(
+        (match) =>
+          existingIds.has(match.externalId) && match.status === "finished"
+      );
+
+      for (const match of matchesToUpdate) {
+        await HistoricalMatch.updateOne(
+          { externalId: match.externalId, status: { $ne: "finished" } },
+          {
+            $set: {
+              status: match.status,
+              result: match.result,
+            },
+          }
+        );
       }
 
       console.log(
-        `${newMatchesCount} nouveaux matchs ajoutés à la base pour ${teamName}`
+        `${newMatches.length} nouveaux matchs ajoutés à la base pour ${teamName}`
+      );
+      console.log(
+        `${matchesToUpdate.length} matchs existants mis à jour pour ${teamName}`
       );
 
       return matches;
@@ -125,7 +154,7 @@ const matchHistoryService = {
   },
 
   // Récupérer l'historique des matchs pour une équipe depuis la base de données locale
-  getTeamHistory: async (teamName, limit = 50) => {
+  getTeamHistory: async (teamName, limit = 200) => {
     // Augmentation de la limite par défaut
     try {
       // Récupérer les matchs de l'équipe depuis la base de données

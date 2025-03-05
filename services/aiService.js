@@ -50,9 +50,9 @@ const aiService = {
   // Extraire les caractéristiques pour l'entraînement du modèle
   extractFeatures: async (homeTeam, awayTeam, date = new Date()) => {
     try {
-      // Récupérer les matchs historiques des 3 dernières saisons
+      // Récupérer les matchs historiques des 5 dernières saisons
       const cutoffDate = new Date(date);
-      cutoffDate.setFullYear(cutoffDate.getFullYear() - 3);
+      cutoffDate.setFullYear(cutoffDate.getFullYear() - 5);
 
       // Récupérer l'historique des équipes
       const homeTeamMatches = await HistoricalMatch.find({
