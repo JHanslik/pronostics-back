@@ -6,11 +6,27 @@ const predictionService = require("../services/predictionService");
 const getPrediction = async (req, res) => {
   try {
     const matchId = req.params.matchId;
+
+    if (!matchId) {
+      return res.status(400).json({
+        success: false,
+        message: "ID de match requis",
+      });
+    }
+
     const prediction = await predictionService.predictMatchResult(matchId);
-    res.json(prediction);
+
+    res.json({
+      success: true,
+      ...prediction,
+    });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Erreur lors de la prédiction" });
+    console.error("Erreur lors de la prédiction:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur lors de la prédiction",
+      error: error.message,
+    });
   }
 };
 
@@ -22,9 +38,11 @@ const syncHistoricalData = async (req, res) => {
     const result = await predictionService.syncHistoricalMatches();
     res.json(result);
   } catch (error) {
-    console.error(error);
+    console.error("Erreur lors de la synchronisation:", error);
     res.status(500).json({
+      success: false,
       message: "Erreur lors de la synchronisation des données historiques",
+      error: error.message,
     });
   }
 };
