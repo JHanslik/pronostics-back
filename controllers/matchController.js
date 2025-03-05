@@ -84,4 +84,56 @@ const syncMatches = async (req, res) => {
   }
 };
 
-module.exports = { getMatches, getMatchById, syncMatches };
+// @desc    Récupérer tous les matchs terminés
+// @route   GET /api/matches/finished
+// @access  Public
+const getFinishedMatches = async (req, res) => {
+  try {
+    const matches = await Match.find({
+      status: "finished",
+    }).sort({ startTime: -1 });
+
+    res.json(matches);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+// @desc    Mettre à jour le résultat d'un match
+// @route   PUT /api/matches/:id/result
+// @access  Private/Admin
+const updateMatchResult = async (req, res) => {
+  try {
+    const { homeScore, awayScore, winner } = req.body;
+
+    // Vérifier si le match existe
+    const match = await Match.findById(req.params.id);
+    if (!match) {
+      return res.status(404).json({ message: "Match non trouvé" });
+    }
+
+    // Mettre à jour le match
+    match.status = "finished";
+    match.result = {
+      homeScore,
+      awayScore,
+      winner,
+    };
+
+    await match.save();
+
+    res.json(match);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+module.exports = {
+  getMatches,
+  getMatchById,
+  syncMatches,
+  getFinishedMatches,
+  updateMatchResult,
+};
