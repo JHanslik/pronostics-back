@@ -100,6 +100,40 @@ const getFinishedMatches = async (req, res) => {
   }
 };
 
+// @desc    Récupérer les matchs terminés à traiter
+// @route   GET /api/matches/finished/to-process
+// @access  Private/Admin
+const getFinishedMatchesToProcess = async (req, res) => {
+  try {
+    const matches = await Match.find({
+      status: "finished",
+      processed: { $ne: true },
+    }).sort({ startTime: -1 });
+
+    res.json(matches);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+// @desc    Récupérer les matchs déjà traités
+// @route   GET /api/matches/processed
+// @access  Private/Admin
+const getProcessedMatches = async (req, res) => {
+  try {
+    const matches = await Match.find({
+      status: "finished",
+      processed: true,
+    }).sort({ processedAt: -1 });
+
+    res.json(matches);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
 // @desc    Mettre à jour le résultat d'un match
 // @route   PUT /api/matches/:id/result
 // @access  Private/Admin
@@ -130,10 +164,35 @@ const updateMatchResult = async (req, res) => {
   }
 };
 
+// @desc    Marquer un match comme traité
+// @route   PUT /api/matches/:id/mark-processed
+// @access  Private/Admin
+const markMatchAsProcessed = async (req, res) => {
+  try {
+    const match = await Match.findById(req.params.id);
+
+    if (!match) {
+      return res.status(404).json({ message: "Match non trouvé" });
+    }
+
+    match.processed = true;
+    match.processedAt = new Date();
+    await match.save();
+
+    res.json({ message: "Match marqué comme traité", match });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
 module.exports = {
   getMatches,
   getMatchById,
   syncMatches,
   getFinishedMatches,
+  getFinishedMatchesToProcess,
   updateMatchResult,
+  getProcessedMatches,
+  markMatchAsProcessed,
 };

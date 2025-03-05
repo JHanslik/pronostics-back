@@ -124,6 +124,11 @@ const processPronostics = async (req, res) => {
       processed++;
     }
 
+    // Marquer le match comme traité
+    match.processed = true;
+    match.processedAt = new Date();
+    await match.save();
+
     res.json({ message: `${processed} pronostics traités` });
   } catch (error) {
     console.error(error);

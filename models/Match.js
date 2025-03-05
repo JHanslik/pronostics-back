@@ -43,6 +43,14 @@ const matchSchema = new mongoose.Schema(
         default: null,
       },
     },
+    processed: {
+      type: Boolean,
+      default: false,
+    },
+    processedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
