@@ -27,6 +27,7 @@ const pronosticRoutes = require("./routes/pronostics");
 const userRoutes = require("./routes/users");
 const predictionRoutes = require("./routes/predictions");
 const aiRoutes = require("./routes/aiRoutes");
+const statsRoutes = require("./routes/stats");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/matches", matchRoutes);
@@ -34,6 +35,7 @@ app.use("/api/pronostics", pronosticRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/predictions", predictionRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/stats", statsRoutes);
 
 // Route de base
 app.get("/", (req, res) => {

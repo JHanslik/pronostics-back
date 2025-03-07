@@ -1,6 +1,7 @@
 const Pronostic = require("../models/Pronostic");
 const Match = require("../models/Match");
 const User = require("../models/User");
+const mongoose = require("mongoose");
 
 // @desc    Créer un nouveau pronostic
 // @route   POST /api/pronostics
@@ -136,4 +137,93 @@ const processPronostics = async (req, res) => {
   }
 };
 
-module.exports = { createPronostic, getUserPronostics, processPronostics };
+// @desc    Obtenir les statistiques des pronostics pour un match
+// @route   GET /api/pronostics/stats/:matchId
+// @access  Public
+const getMatchPronosticsStats = async (req, res) => {
+  try {
+    const { matchId } = req.params;
+
+    // Vérifier si l'ID est valide
+    if (!mongoose.Types.ObjectId.isValid(matchId)) {
+      return res.status(400).json({ message: "ID de match invalide" });
+    }
+
+    const matchObjectId = new mongoose.Types.ObjectId(matchId);
+
+    const stats = await Pronostic.aggregate([
+      // Étape 1: Filtrer les pronostics pour ce match
+      {
+        $match: { match: matchObjectId },
+      },
+      // Étape 2: Grouper par prédiction
+      {
+        $group: {
+          _id: "$prediction",
+          count: { $sum: 1 },
+          totalPointsBet: { $sum: "$pointsBet" },
+          avgPointsBet: { $avg: "$pointsBet" },
+        },
+      },
+      // Étape 3: Ajouter le total des pronostics pour calculer le pourcentage
+      {
+        $facet: {
+          predictionStats: [{ $match: {} }],
+          totalCount: [{ $count: "total" }],
+        },
+      },
+      // Étape 4: Dérouler les résultats et calculer les pourcentages
+      {
+        $unwind: "$totalCount",
+      },
+      {
+        $unwind: "$predictionStats",
+      },
+      {
+        $project: {
+          prediction: "$predictionStats._id",
+          count: "$predictionStats.count",
+          percentage: {
+            $round: [
+              {
+                $multiply: [
+                  { $divide: ["$predictionStats.count", "$totalCount.total"] },
+                  100,
+                ],
+              },
+              1,
+            ],
+          },
+          totalPointsBet: "$predictionStats.totalPointsBet",
+          avgPointsBet: { $round: ["$predictionStats.avgPointsBet", 0] },
+        },
+      },
+      // Étape 5: Trier par nombre de pronostics
+      {
+        $sort: { count: -1 },
+      },
+    ]);
+
+    // Récupérer les informations du match
+    const match = await Match.findById(matchId).select(
+      "homeTeam awayTeam startTime status"
+    );
+
+    res.json({
+      match,
+      stats,
+      totalPronostics:
+        stats.length > 0 ? stats.reduce((sum, item) => sum + item.count, 0) : 0,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+module.exports = {
+  createPronostic,
+  getUserPronostics,
+  processPronostics,
+  getMatchPronosticsStats,
+};
